@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="pt">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel Administrativo - Urna Eletrônica</title>
+    <link rel="stylesheet" href="styles/style.css" type="text/css">
+    <style>
+        .admin-container {
+            width: 95%;
+            max-width: 1000px;
+            background-color: var(--fundo);
+            padding: 25px;
+            border-radius: 10px;
+            font-family: var(--font);
+            color: var(--botoes);
+            box-shadow: 0px 4px 10px rgba(0,0,0,0.3);
+            margin: 20px 0;
+        }
+
+        .admin-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid var(--fundo-botoes);
+            padding-bottom: 15px;
+            margin-bottom: 20px;
+        }
+
+        .btn-danger {
+            background-color: #d9534f;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            font-weight: bold;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .btn-danger:hover {
+            background-color: #c9302c;
+        }
+
+        .cards-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+
+        .card {
+            background-color: var(--branco);
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        .card h3 {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 8px;
+        }
+
+        .card p {
+            font-size: 24px;
+            font-weight: bold;
+        }
+
+        .tabela-container {
+            background-color: var(--branco);
+            border-radius: 8px;
+            padding: 15px;
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+
+        th, td {
+            padding: 10px;
+            border-bottom: 1px solid #ddd;
+            font-size: 14px;
+        }
+
+        th {
+            background-color: #f2f2f2;
+        }
+
+        .btn-voltar {
+            display: inline-block;
+            margin-top: 20px;
+            padding: 10px 20px;
+            background-color: var(--fundo-botoes);
+            color: var(--branco);
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="container">
+
+        <div class="admin-container">
+            <div class="admin-header">
+                <h2>PAINEL DE ADMINISTRAÇÃO</h2>
+                <button id="btnZerarVotacao" class="btn-danger">ZERAR TODA A VOTAÇÃO</button>
+            </div>
+
+            <!-- Resumo das Apurações -->
+            <h3>Resumo Geral</h3>
+            <div class="cards-grid">
+                <div class="card">
+                    <h3>Total de Votos</h3>
+                    <p id="totalVotos">0</p>
+                </div>
+                <div class="card">
+                    <h3>Lula (13)</h3>
+                    <p id="votos-13">0</p>
+                </div>
+                <div class="card">
+                    <h3>Bolsonaro (22)</h3>
+                    <p id="votos-22">0</p>
+                </div>
+                <div class="card">
+                    <h3>Brancos</h3>
+                    <p id="votos-BRANCO">0</p>
+                </div>
+                <div class="card">
+                    <h3>Nulos</h3>
+                    <p id="votos-NULO">0</p>
+                </div>
+            </div>
+
+            <!-- Tabela de Registros de IP -->
+            <h3>Eleitores Registrados</h3>
+            <div class="tabela-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>IP do Eleitor</th>
+                            <th>Região</th>
+                            <th>Data e Hora</th>
+                            <th>Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tabelaIPs">
+                        <tr>
+                            <td colspan="4" style="text-align: center;">Carregando registros...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <a href="index.html" class="btn-voltar">Voltar para a Urna</a>
+        </div>
+
+
+        <footer>
+            <p>Dev. Herbert</p>
+            <a href="https://github.com/herbertonline1/">
+                <img src="./images/GitHub-Mark-32px.png" alt="">
+            </a>
+        </footer>
+
+    </div>
+
+    <script type="module" src="./admin.js"></script>
+</body>
+
+</html>
