@@ -1,5 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-import { getFirestore, doc, getDoc, setDoc, increment, collection, addDoc } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
+import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyB-E0xStEwuGyBY3-rGCBl09r04uDJeyow",
@@ -11,8 +12,10 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
 const db = getFirestore(app);
 
+let userId = "";
 let userIP = "";
 let userRegiao = "Não identificada";
 let jaVotou = false;
@@ -27,44 +30,67 @@ let partido = document.getElementById('partidoCandidato');
 let foto = document.getElementById('fotoPresidente');
 let legenda = document.getElementById('legenda');
 
-async function verificarIP() {
+function tocar(audio) {
     try {
-        // Busca IP e localização via ipapi.co
-        const res = await fetch('https://ipapi.co/json/');
+        const p = audio.play();
+        if (p && p.catch) p.catch(() => {});
+    } catch (e) { /* ignora falhas de áudio em alguns navegadores */ }
+}
+
+// IP e região são apenas informativos (aparecem no painel admin).
+// NÃO são usados para bloquear o voto, então se falharem o voto continua funcionando.
+async function buscarIPeRegiao() {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 4000);
+    try {
+        const res = await fetch('https://ipapi.co/json/', { signal: controller.signal });
         const data = await res.json();
-        
         userIP = data.ip || "";
         if (data.city && data.region_code) {
             userRegiao = `${data.city} - ${data.region_code}`;
         } else if (data.country_name) {
             userRegiao = data.country_name;
         }
-        
-        if (userIP) {
-            const ipKey = userIP.replace(/\./g, '_');
-            const docRef = doc(db, "votos_por_ip", ipKey);
-            const docSnap = await getDoc(docRef);
+    } catch (e) {
+        console.warn("Não foi possível obter IP/Região (não bloqueia o voto):", e);
+    } finally {
+        clearTimeout(timer);
+    }
+}
 
-            if (docSnap.exists()) {
-                jaVotou = true;
-                bloquearVotacao();
-            }
+// Identificação do eleitor: login anônimo do Firebase.
+// Cada navegador/dispositivo recebe um ID próprio e persistente, independente da rede.
+// O documento votos/{uid} só pode ser criado uma vez (garantido pelas regras do Firestore).
+const ipPromise = buscarIPeRegiao();
+
+async function iniciar() {
+    try {
+        const cred = await signInAnonymously(auth);
+        userId = cred.user.uid;
+
+        const docSnap = await getDoc(doc(db, "votos", userId));
+        if (docSnap.exists()) {
+            jaVotou = true;
+            bloquearVotacao();
         }
     } catch (e) {
-        console.error("Erro ao verificar IP/Região:", e);
+        console.error("Erro ao identificar o eleitor:", e);
+        nomeTitulo.innerText = 'ERRO';
+        nomeCandidato.innerText = 'Não foi possível conectar. Recarregue a página.';
+        document.querySelectorAll('.btn, .btnAcao').forEach(btn => btn.disabled = true);
     }
 }
 
 function bloquearVotacao() {
     nomeTitulo.innerText = 'VOTO REGISTRADO';
-    nomeCandidato.innerText = 'Seu dispositivo/IP já votou.';
+    nomeCandidato.innerText = 'Seu dispositivo já votou.';
     partido.innerText = '';
     num1.innerText = '';
     num2.innerText = '';
     document.querySelectorAll('.btn, .btnAcao').forEach(btn => btn.disabled = true);
 }
 
-verificarIP();
+iniciar();
 
 document.querySelectorAll('.btn').forEach((botao) => {
     document.getElementById(botao.id).addEventListener('click', () => {
@@ -77,13 +103,13 @@ function votacao(botao) {
     if (!num1.value) {
         num1.innerHTML = botao.value;
         num1.value = botao.value;
-        somNumeros.play();
+        tocar(somNumeros);
         return;
     }
     else if (!num2.value) {
         num2.innerHTML = botao.value;
         num2.value = botao.value;
-        somNumeros.play();
+        tocar(somNumeros);
         mostraCandidato();
     }
 }
@@ -116,8 +142,10 @@ function mostraCandidato() {
 
 document.getElementById('btnConfirma').addEventListener('click', confirma);
 
+let enviando = false;
+
 async function confirma() {
-    if (jaVotou) return;
+    if (jaVotou || enviando) return;
 
     if (document.getElementById('fim').style.display == 'flex') {
         corrige();
@@ -135,10 +163,17 @@ async function confirma() {
                 votoChave = 'NULO';
             }
 
-            document.getElementById('fim').style.display = 'flex';
-            somConfirma.play();
+            enviando = true;
+            const sucesso = await registrarVotoNoFirebase(votoChave);
+            enviando = false;
 
-            await registrarVotoNoFirebase(votoChave);
+            if (!sucesso) {
+                alert('Não foi possível registrar o voto. Verifique sua conexão e tente novamente.');
+                return;
+            }
+
+            document.getElementById('fim').style.display = 'flex';
+            tocar(somConfirma);
 
             setTimeout(() => {
                 jaVotou = true;
@@ -150,31 +185,27 @@ async function confirma() {
     }
 }
 
+// Um único documento por eleitor (votos/{uid}). A contagem é feita a partir desta coleção,
+// então o painel e o resultado nunca ficam fora de sincronia.
 async function registrarVotoNoFirebase(tipoVoto) {
+    if (!userId) return false;
     try {
-        await addDoc(collection(db, "votos"), {
+        await ipPromise;
+        await setDoc(doc(db, "votos", userId), {
             tipo: tipoVoto,
             data: new Date().toISOString(),
             ip: userIP,
             regiao: userRegiao
         });
-
-        const apuracaoRef = doc(db, "apuracao", "geral");
-        await setDoc(apuracaoRef, {
-            [tipoVoto]: increment(1)
-        }, { merge: true });
-
-        if (userIP) {
-            const ipKey = userIP.replace(/\./g, '_');
-            await setDoc(doc(db, "votos_por_ip", ipKey), {
-                votou: true,
-                tipoVoto: tipoVoto,
-                regiao: userRegiao,
-                data: new Date().toISOString()
-            });
-        }
+        return true;
     } catch (e) {
         console.error("Erro ao registrar voto:", e);
+        if (e && e.code === 'permission-denied') {
+            // Já existe voto deste dispositivo
+            jaVotou = true;
+            bloquearVotacao();
+        }
+        return false;
     }
 }
 
@@ -189,7 +220,7 @@ function corrige() {
     num2.innerText = '';
     num1.value = null;
     num2.value = null;
-    somNumeros.play();
+    tocar(somNumeros);
     foto.style.backgroundImage = "url('./images/person-icon.png')";
     legenda.style.display = 'none';
     document.getElementById('fim').style.display = 'none';
@@ -206,7 +237,7 @@ function votoBranco() {
     num2.innerText = '0';
     num1.value = '0';
     num2.value = '0';
-    somNumeros.play();
+    tocar(somNumeros);
     foto.style.backgroundImage = "url('./images/person-icon.png')";
     legenda.style.display = 'none';
 }

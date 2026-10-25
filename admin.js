@@ -1,15 +1,11 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-import { 
-    getFirestore, 
-    doc, 
-    getDocs, 
-    collection, 
-    deleteDoc, 
-    setDoc, 
-    increment,
-    query,
-    where,
-    onSnapshot 
+import {
+    getFirestore,
+    doc,
+    getDocs,
+    collection,
+    deleteDoc,
+    onSnapshot
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -24,48 +20,54 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-// Ouve os dados consolidados da apuração em tempo real
-onSnapshot(doc(db, "apuracao", "geral"), (docSnap) => {
-    const dados = docSnap.exists() ? docSnap.data() : {};
+function escapeHtml(texto) {
+    return String(texto).replace(/[&<>"']/g, (c) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+}
 
-    const v13 = Math.max(0, dados['13'] || 0);
-    const v22 = Math.max(0, dados['22'] || 0);
-    const vBranco = Math.max(0, dados['BRANCO'] || 0);
-    const vNulo = Math.max(0, dados['NULO'] || 0);
-    const total = v13 + v22 + vBranco + vNulo;
+// Fonte única de verdade: a coleção "votos" (1 documento por eleitor).
+// Os totais e a tabela são calculados a partir dela, então sempre batem.
+onSnapshot(collection(db, "votos"), (querySnapshot) => {
+    const contagem = { '13': 0, '22': 0, 'BRANCO': 0, 'NULO': 0 };
+    const registros = [];
+
+    querySnapshot.forEach((docItem) => {
+        const dados = docItem.data();
+        if (dados.tipo in contagem) contagem[dados.tipo]++;
+        registros.push({ id: docItem.id, ...dados });
+    });
+
+    const total = contagem['13'] + contagem['22'] + contagem['BRANCO'] + contagem['NULO'];
 
     document.getElementById('totalVotos').innerText = total;
-    document.getElementById('votos-13').innerText = v13;
-    document.getElementById('votos-22').innerText = v22;
-    document.getElementById('votos-BRANCO').innerText = vBranco;
-    document.getElementById('votos-NULO').innerText = vNulo;
-});
+    document.getElementById('votos-13').innerText = contagem['13'];
+    document.getElementById('votos-22').innerText = contagem['22'];
+    document.getElementById('votos-BRANCO').innerText = contagem['BRANCO'];
+    document.getElementById('votos-NULO').innerText = contagem['NULO'];
 
-// Ouve a lista de eleitores/IPs cadastrados em tempo real
-onSnapshot(collection(db, "votos_por_ip"), (querySnapshot) => {
     const tabelaBody = document.getElementById('tabelaIPs');
     tabelaBody.innerHTML = '';
 
-    if (querySnapshot.empty) {
+    if (registros.length === 0) {
         tabelaBody.innerHTML = '<tr><td colspan="4" style="text-align: center;">Nenhum voto registrado ainda.</td></tr>';
         return;
     }
 
-    querySnapshot.forEach((docItem) => {
-        const dataDoc = docItem.data();
-        const docId = docItem.id;
-        const ipOriginal = docId.replace(/_/g, '.');
-        const regiao = dataDoc.regiao || 'Não informada';
-        const dataFormatada = dataDoc.data ? new Date(dataDoc.data).toLocaleString('pt-BR') : 'Data não informada';
-        const tipoVoto = dataDoc.tipoVoto || '';
+    registros.sort((a, b) => String(a.data || '').localeCompare(String(b.data || '')));
+
+    registros.forEach((reg) => {
+        const ip = reg.ip ? escapeHtml(reg.ip) : 'Não identificado';
+        const regiao = escapeHtml(reg.regiao || 'Não informada');
+        const dataFormatada = reg.data ? new Date(reg.data).toLocaleString('pt-BR') : 'Data não informada';
 
         const tr = document.createElement('tr');
         tr.innerHTML = `
-            <td><b>${ipOriginal}</b></td>
+            <td><b>${ip}</b></td>
             <td>${regiao}</td>
             <td>${dataFormatada}</td>
             <td>
-                <button class="btn-danger btn-excluir" data-ipkey="${docId}" data-ip="${ipOriginal}" data-tipovoto="${tipoVoto}">
+                <button class="btn-danger btn-excluir" data-id="${escapeHtml(reg.id)}" data-ip="${ip}">
                     Excluir Voto
                 </button>
             </td>
@@ -73,70 +75,38 @@ onSnapshot(collection(db, "votos_por_ip"), (querySnapshot) => {
         tabelaBody.appendChild(tr);
     });
 
-    // Atribui evento de exclusão aos botões criados
     document.querySelectorAll('.btn-excluir').forEach((botao) => {
         botao.addEventListener('click', (e) => {
-            const ipKey = e.target.getAttribute('data-ipkey');
-            const ipOriginal = e.target.getAttribute('data-ip');
-            const tipoVoto = e.target.getAttribute('data-tipovoto');
-            excluirVotoEleitor(ipKey, ipOriginal, tipoVoto);
+            excluirVotoEleitor(e.target.getAttribute('data-id'), e.target.getAttribute('data-ip'));
         });
     });
 });
 
-// Função para excluir definitivamente o voto e os registros do IP selecionado
-async function excluirVotoEleitor(ipKey, ipOriginal, tipoVoto) {
-    const confirmacao = confirm(`Deseja realmente apagar o voto do IP ${ipOriginal}? Ele será removido da contagem e o eleitor poderá votar novamente.`);
-    
+// Exclui o voto: a contagem se atualiza sozinha e o eleitor poderá votar novamente.
+async function excluirVotoEleitor(id, ip) {
+    const confirmacao = confirm(`Deseja realmente apagar o voto de ${ip}? Ele será removido da contagem e o eleitor poderá votar novamente.`);
+
     if (!confirmacao) return;
 
     try {
-        // 1. Apaga a restrição de IP do banco de dados
-        await deleteDoc(doc(db, "votos_por_ip", ipKey));
-
-        // 2. Apaga os registros individuais salvos na coleção "votos" para esse IP
-        if (ipOriginal) {
-            const q = query(collection(db, "votos"), where("ip", "==", ipOriginal));
-            const querySnapshot = await getDocs(q);
-            const deletePromises = querySnapshot.docs.map((documento) => deleteDoc(documento.ref));
-            await Promise.all(deletePromises);
-        }
-
-        // 3. Decrementa o tipo de voto da apuração geral
-        if (tipoVoto) {
-            const apuracaoRef = doc(db, "apuracao", "geral");
-            await setDoc(apuracaoRef, {
-                [tipoVoto]: increment(-1)
-            }, { merge: true });
-        }
-
-        alert(`Voto do IP ${ipOriginal} foi totalmente removido do banco de dados e da apuração!`);
+        await deleteDoc(doc(db, "votos", id));
+        alert(`Voto de ${ip} foi removido com sucesso!`);
     } catch (e) {
         console.error("Erro ao excluir voto:", e);
         alert("Ocorreu um erro ao tentar excluir o voto do banco de dados.");
     }
 }
 
-// Botão de ação para zerar todos os dados
+// Zera tudo (também limpa as coleções antigas, caso ainda existam)
 document.getElementById('btnZerarVotacao').addEventListener('click', async () => {
     const confirmacao = confirm("Tem certeza de que deseja APAGAR TODOS os registros e zerar a votação completa?");
     if (!confirmacao) return;
 
     try {
-        await setDoc(doc(db, "apuracao", "geral"), {
-            '13': 0,
-            '22': 0,
-            'BRANCO': 0,
-            'NULO': 0
-        });
-
-        const ipsSnapshot = await getDocs(collection(db, "votos_por_ip"));
-        const deleteIPs = ipsSnapshot.docs.map(d => deleteDoc(d.ref));
-        await Promise.all(deleteIPs);
-
-        const votosSnapshot = await getDocs(collection(db, "votos"));
-        const deleteVotos = votosSnapshot.docs.map(d => deleteDoc(d.ref));
-        await Promise.all(deleteVotos);
+        for (const nome of ["votos", "votos_por_ip", "apuracao"]) {
+            const snapshot = await getDocs(collection(db, nome));
+            await Promise.all(snapshot.docs.map(d => deleteDoc(d.ref)));
+        }
 
         alert("Toda a votação foi zerada do banco de dados com sucesso!");
     } catch (e) {

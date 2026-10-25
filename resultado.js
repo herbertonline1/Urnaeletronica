@@ -1,5 +1,5 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-import { getFirestore, doc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+import { getFirestore, collection, onSnapshot } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyB-E0xStEwuGyBY3-rGCBl09r04uDJeyow",
@@ -13,27 +13,28 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-onSnapshot(doc(db, "apuracao", "geral"), (docSnap) => {
-    const dados = docSnap.exists() ? docSnap.data() : {};
+// Conta direto da coleção "votos" (mesma fonte do painel admin)
+onSnapshot(collection(db, "votos"), (querySnapshot) => {
+    const contagem = { '13': 0, '22': 0, 'BRANCO': 0, 'NULO': 0 };
 
-    const votos13 = dados['13'] || 0;
-    const votos22 = dados['22'] || 0;
-    const votosBrancos = dados['BRANCO'] || 0;
-    const votosNulos = dados['NULO'] || 0;
+    querySnapshot.forEach((docItem) => {
+        const tipo = docItem.data().tipo;
+        if (tipo in contagem) contagem[tipo]++;
+    });
 
-    const totalVotos = votos13 + votos22 + votosBrancos + votosNulos;
+    const totalVotos = contagem['13'] + contagem['22'] + contagem['BRANCO'] + contagem['NULO'];
 
     document.getElementById('totalVotos').innerText = totalVotos;
 
-    atualizarCandidato('13', votos13, totalVotos);
-    atualizarCandidato('22', votos22, totalVotos);
-    atualizarCandidato('BRANCO', votosBrancos, totalVotos);
-    atualizarCandidato('NULO', votosNulos, totalVotos);
+    atualizarCandidato('13', contagem['13'], totalVotos);
+    atualizarCandidato('22', contagem['22'], totalVotos);
+    atualizarCandidato('BRANCO', contagem['BRANCO'], totalVotos);
+    atualizarCandidato('NULO', contagem['NULO'], totalVotos);
 });
 
 function atualizarCandidato(id, qtdVotos, total) {
     const porcentagem = total > 0 ? ((qtdVotos / total) * 100).toFixed(1) : 0;
-    
+
     document.getElementById(`votos-${id}`).innerText = `${qtdVotos} votos (${porcentagem}%)`;
     document.getElementById(`bar-${id}`).style.width = `${porcentagem}%`;
 }
