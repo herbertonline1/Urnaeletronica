@@ -88,6 +88,11 @@ function bloquearVotacao() {
     num1.innerText = '';
     num2.innerText = '';
     document.querySelectorAll('.btn, .btnAcao').forEach(btn => btn.disabled = true);
+    // Deixa os botões BRANCO, CORRIGE e CONFIRMA apagados
+    document.querySelectorAll('.btnAcao').forEach(btn => {
+        btn.style.opacity = '0.5';
+        btn.style.cursor = 'not-allowed';
+    });
 }
 
 iniciar();
